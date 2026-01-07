@@ -1,0 +1,123 @@
+---
+title: "regressions"
+author: "Gustav Idun Sloth"
+date: "2026-01-07"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(emmeans)
+
+my_theme <- theme_bw() +
+  theme(
+    plot.title  = element_text(family = "Helvetica", face = "bold"),
+    axis.title  = element_text(family = "Helvetica"),
+    axis.text   = element_text(family = "Helvetica"),
+    legend.text = element_text(family = "Helvetica"),
+    legend.title= element_text(family = "Helvetica"),
+    strip.text  = element_text(family = "Helvetica")
+  )
+```
+
+
+```{r load}
+
+# import the puppet data
+df <- read_csv("../../data/puppets/processed/27-12/wide.csv")
+
+# we are only interested in data during the "drifting phase"
+df <- df %>% filter(puppet_state == "drifting")
+
+df$puppet_cond <- relevel(factor(df$puppet_cond), ref="(0, 0)")
+
+```
+
+```{r data plots}
+
+# we plot MRS to get a sense of the distribution. Theoretically, it should be normally distributed due to the center limit theorem. 
+ggplot(filter(df, cond_group == "random" & depth == 200), aes(x = mean_rec_slant)) +
+  geom_histogram(bins = 30, color = "white") +
+  facet_wrap(~ slant_label) +
+  my_theme +
+  labs(x="Mean Recommended Slant")
+
+#let's look at a small sample of the raw data for the random static condition. 
+subids <- df %>%
+  filter(cond_group == "random") %>%
+  pull(puppet_id) %>%
+  unique() %>%
+  head(10)
+
+p_sub <- df %>% filter(puppet_id %in% subids)
+
+ggplot(p_sub, aes(depth, rec_mean_diff)) +
+  geom_line() +
+  facet_wrap(slant_label ~ puppet_id) +
+  my_theme
+
+```
+
+```{r model }
+
+#base model
+md_bas <- lm(mean_rec_slant ~ slant_label, data=filter(df, cond_group == "random", depth == 200)) # we filter to only include data at the last step of the "drifting" phase
+summary(md_bas)
+
+#calculate marginal means
+emm <- emmeans(md_bas, ~ slant_label)
+summary(emm)
+
+```
+```{r marginal means viz }
+
+# define slant scale colors according to Haroon et al (2023)
+slant_label_scale = c(
+  "Far left" = "blue",
+  "Left" = "lightblue",
+  "Center" = "purple",
+  "Right" = "salmon",
+  "Far right" = "red"
+)
+
+df_emm <- as.data.frame(emm)
+
+# enforce correct order of labels
+df_emm$slant_label <- factor(
+  df_emm$slant_label,
+  levels = c("Far left", "Left", "Center", "Right", "Far right")
+)
+
+# plot
+ggplot(df_emm, aes(x = slant_label, y = emmean, fill=slant_label)) +
+  geom_col(position = position_dodge(width = 0.8),
+           width = 0.7) +
+  geom_errorbar(
+    aes(ymin = lower.CL, ymax = upper.CL),
+    position = position_dodge(width = 0.8),
+    width = 0.2
+  ) +
+  scale_y_continuous(limits = c(-0.33, 0.33)) +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = slant_label_scale) +
+  labs(
+    title = "Estimated MRS (depth = 300)",
+    x = "Condition",
+    y = "MRS (estimated)"
+  ) +
+  my_theme +
+  theme(legend.position = "none", aspect.ratio=1)
+  
+
+```
+
+```{r diagnostics}
+
+#quick diagnostics
+plot(md_bas)
+
+```
